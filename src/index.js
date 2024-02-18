@@ -73,73 +73,112 @@ const App = () => {
   const TRANSLATE_Y = 100;
   const SCALE = 40;
 
-  function deleteFloatingNodes(links, nodes){
-    nodes.forEach((node) => {
-      if(node.inputLink == null && node.outputLinks.length == 0){
-        nodes.delete(node.id);
+  function simplifyNonBranchingNodes(links, nodes){
+    while(true){
+      let nonBranchingNodes = [];
+      nodes.forEach((node) => {
+        if(node.inputLink != null && node.outputLinks.length == 1){
+          nonBranchingNodes.push(node);
+        }
+      });
+
+      if(nonBranchingNodes.length == 0){
+        break;
       }
-    });
+      
+      nonBranchingNodes.forEach((nonBranchingNode) => {
+        const newLinkOrigin = links.get(nonBranchingNode.inputLink).node1;
+        const newLinkDestination = links.get(nonBranchingNode.outputLinks[0]).node2;
+        
+        // Delete reference to old link from newLinkOrigin
+        newLinkOrigin.outputLinks = newLinkOrigin.outputLinks.filter((outputLink) => outputLink != nonBranchingNode.inputLink);
+        // Create new link (this will add references to the new link to both origin and destination nodes)
+        const newLink = createLink(newLinkOrigin, newLinkDestination);
+        links.set(newLink.id, newLink);
+
+        // Remove nonBranching node and old links from the map
+        links.delete(nonBranchingNode.inputLink);
+        links.delete(nonBranchingNode.outputLinks[0]);
+        nodes.delete(nonBranchingNode.id);
+      });
+
+    }
+
     return [links, nodes];
   }
 
-  function simplifyNonBranchingNodes(links, nodes){
-    nodes.forEach((node) => {
-      if(node.inputLink != null && node.outputLinks.length == 1){
-        const inputLink = links.get(node.inputLink);
-        const outputLink = links.get(node.outputLinks[0]);
-        
-        const newLink = createLink(inputLink.node1, outputLink.node2);
-        // Delete node1's reference to simplified link
-        inputLink.node1.outputLinks.filter((outputLink) => outputLink != node.id);    
-        // Delete node2's reference to simplified link
-        outputLink.node2.inputLink = null;
-        
-        links.set(newLink.id, newLink);
-        links.delete(inputLink.id);
-        links.delete(outputLink.id);
-        nodes.delete(node.id);
-        
+  function getRootNode(links, nodes){
+    for(let node of nodes.values()){
+      if(node.inputLink == null){
+        return node;
       }
-    });
-    return [links, nodes];
+    }    
+    return null;
+  }
+  
+  function performPositioning(originNode, links, nodes){
+    const childrenNodes = originNode.outputLinks.map((outputLink) => links.get(outputLink).node2);
+
+    if(childrenNodes.length > 0){
+      childrenNodes.sort((a, b) => a.y - b.y);    
+      
+      let diffY = childrenNodes[0].y - originNode.y;      
+      childrenNodes.forEach((childNode) => {        
+        childNode.y = childNode.y - diffY;
+        performPositioning(childNode, links, nodes);        
+      });
+    }
   }
 
   function deleteLink(linkId, links, nodes){
     [links, nodes] = pruneLinkBranch(linkId, links, nodes);
-    [links, nodes] = deleteFloatingNodes(links, nodes);
     [links, nodes] = simplifyNonBranchingNodes(links, nodes);    
-    //[links, nodes] = deleteFloatingNodes(links, nodes);
+    const root = getRootNode(links, nodes);
+    performPositioning(root, links, nodes);    
     return [links, nodes];
   }
 
   function pruneLinkBranch(linkId, links, nodes){
-    let [newLinks, newNodes] = [links, nodes];
 
     const link = links.get(linkId);
-    if(link){
-      // Delete all children    
-      link.node2.outputLinks.forEach((childLinkId) => { [newLinks, newNodes] = deleteLink(childLinkId, newLinks, newNodes) });    
-      link.node2.inputLink = null;
+    if(link){      
 
-      // Delete link
-      newLinks.delete(linkId);
+      // Delete node2 from nodes map
+      nodes.delete(link.node2.id);                
 
-
+      // Delete link reference from node1's outputLinks
       if(link.node1){
-        // Delete link from node1's outputLinks
-        link.node1.outputLinks = link.node1.outputLinks.filter((outputLink) => outputLink != linkId);
+        link.node1.outputLinks = link.node1.outputLinks.filter((outputLink) => outputLink != linkId);        
+      }
 
-        if(link.node1.outputLinks.length == 0){
-          // Delete node1's input link
-          link.node1.inputLink = null;
-          [newLinks, newNodes] = deleteLink(link.node1.inputLink, newLinks, newNodes);
+      // Delete link from links map
+      links.delete(linkId);
+
+      // Delete all children (iterative way instead of recursive)
+      while(true){
+        let orphanLinks = [];
+        links.forEach((link) => {
+          if(nodes.get(link.node1.id) == null){
+            orphanLinks.push(link.id);
+          }
+        });
+
+        if(orphanLinks.length == 0){
+          // No more orphan links
+          break;
+        } else {
+          orphanLinks.forEach((linkId) => {
+            const link = links.get(linkId);
+            nodes.delete(link.node2.id);
+            links.delete(linkId);
+          })
         }
 
       }
     }
 
         
-    return [newLinks, newNodes];
+    return [links, nodes];
   }
 
   useEffect(() => {
@@ -197,6 +236,8 @@ const App = () => {
     <>
     <Button onClick={() => {currentCommand == COMMANDS.delete ? setCurrentCommand(COMMANDS.idle) : setCurrentCommand(COMMANDS.delete)}} >Delete</Button>
     <h3>{currentCommand}</h3>
+    <p style={{width:"50%"}}>{JSON.stringify(Array.from(nodes), null, "\t") + 'A'}</p>
+    <p style={{float:"right"}}>{JSON.stringify(Array.from(links), null, "\t") + 'B'}</p>
     <Stage width={window.innerWidth} height={window.innerHeight}>
       <Layer>                  
           {Array.from(links).map(([key, value]) => value).map((link) => (
