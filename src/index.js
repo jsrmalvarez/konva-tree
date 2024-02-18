@@ -16,6 +16,58 @@ function createLink(node1, node2){
   return {id: linkId, node1, node2};
 }
 
+function generateTreeFromFile(jsonData) {
+
+  const simulation_data = require('./output.json');
+  const timelines = simulation_data.timelines;
+  const nodes = new Map(); // To track nodes and avoid duplicates
+  const links = new Map();
+  const endNodes = new Map(); // Tracks end nodes of each timeline
+
+  // Helper to get or create node
+  function getOrCreateNode(name, x, y) {
+    if (!nodes.has(name)) {
+      const node = createNode(name, x, y);
+      nodes.set(name, node);
+      return node;
+    }
+    return nodes.get(name);
+  }
+
+  timelines.forEach((timeline, index) => {
+    const keys = Object.keys(timeline).map(Number).sort((a, b) => a - b);
+    const firstInstant = keys[0];
+    const lastInstant = keys[keys.length - 1];
+
+    // Create or get the first node
+    let prevNode = getOrCreateNode(`${firstInstant}_${index}`, firstInstant, index);
+    
+    // If this timeline starts right after the end of any previous timelines, create links
+    if (endNodes.has(firstInstant - 1)) {
+      endNodes.get(firstInstant - 1).forEach(endNode => {
+        const newLink = createLink(endNode, prevNode);
+        links.set(newLink.id, newLink);
+      });
+    }
+
+    // Create nodes and links for the rest of the timeline
+    for (let i = 1; i < keys.length; i++) {
+      const instant = keys[i];
+      const nodeName = `${instant}_${index}`;
+      const node = getOrCreateNode(nodeName, instant, index);
+      const newLink = createLink(prevNode, node);
+      links.set(newLink.id, newLink);
+      prevNode = node; // Update the previous node for the next iteration
+    }
+
+    // Update the end node for this timeline
+    endNodes.set(lastInstant, [prevNode]);
+  });
+
+  return {nodes, links};
+}
+
+
 function generateTree(){
   const nodes = new Map();
   const node0_0 = createNode("0_0", 0, 0);
@@ -61,17 +113,22 @@ function generateTree(){
 
 }
 
-const INITIAL_TREE = generateTree();
+
 const App = () => {
   const [currentCommand, setCurrentCommand] = useState(COMMANDS.idle);
   const [clickId, setClickId] = useState("none");
   const [hoverId, setHoverId] = useState("none");
+  
+  const INITIAL_TREE = generateTreeFromFile();
   const [nodes, setNodes] = useState(INITIAL_TREE.nodes);
   const [links, setLinks] = useState(INITIAL_TREE.links);
 
   const TRANSLATE_X = 100;
   const TRANSLATE_Y = 100;
   const SCALE = 40;
+
+  const root = getRootNode(links, nodes);
+  performPositioning(root, links, nodes);
 
   function simplifyNonBranchingNodes(links, nodes){
     while(true){
@@ -132,7 +189,7 @@ const App = () => {
 
   function deleteLink(linkId, links, nodes){
     [links, nodes] = pruneLinkBranch(linkId, links, nodes);
-    [links, nodes] = simplifyNonBranchingNodes(links, nodes);    
+    //[links, nodes] = simplifyNonBranchingNodes(links, nodes);    
     const root = getRootNode(links, nodes);
     performPositioning(root, links, nodes);    
     return [links, nodes];
@@ -236,8 +293,8 @@ const App = () => {
     <>
     <Button onClick={() => {currentCommand == COMMANDS.delete ? setCurrentCommand(COMMANDS.idle) : setCurrentCommand(COMMANDS.delete)}} >Delete</Button>
     <h3>{currentCommand}</h3>
-    <p style={{width:"50%"}}>{JSON.stringify(Array.from(nodes), null, "\t") + 'A'}</p>
-    <p style={{float:"right"}}>{JSON.stringify(Array.from(links), null, "\t") + 'B'}</p>
+    {/* <p style={{width:"50%"}}>{JSON.stringify(Array.from(nodes), null, "\t") + 'A'}</p> 
+    <p style={{float:"right"}}>{JSON.stringify(Array.from(links), null, "\t") + 'B'}</p>*/}
     <Stage width={window.innerWidth} height={window.innerHeight}>
       <Layer>                  
           {Array.from(links).map(([key, value]) => value).map((link) => (
@@ -250,7 +307,7 @@ const App = () => {
             <Circle id={node.id} key={node.id}
                     stroke="black" radius={10} fill="red" 
                     x={node.x*SCALE + TRANSLATE_X} y={node.y*SCALE + TRANSLATE_Y} />
-            <Text fill="magenta" id={node.id+'text'} key={node.id+'text'} text={`${node.id}\n${node.inputLink}\n${node.outputLinks}`} x={node.x*SCALE + TRANSLATE_X + 10} y={node.y*SCALE + TRANSLATE_Y + 10} />
+            {/* }<Text fill="magenta" id={node.id+'text'} key={node.id+'text'} text={`${node.id}\n${node.inputLink}\n${node.outputLinks}`} x={node.x*SCALE + TRANSLATE_X + 10} y={node.y*SCALE + TRANSLATE_Y + 10} /> */}
             </>
           ))}
 
