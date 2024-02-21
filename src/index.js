@@ -5,6 +5,11 @@ import { Button } from 'semantic-ui-react'
 
 const COMMANDS = {idle: "IDLE", delete: "DELETE"};
 
+const TRANSLATE_X = 100;
+const TRANSLATE_Y = 100;
+const SCALE_X = 10;
+const SCALE_Y = 40;
+
 function createNode(id, x, y){
   return {id: id.toString(), x, y, inputLink: null, outputLinks: []};
 }
@@ -24,49 +29,40 @@ function generateTreeFromFile(jsonData) {
   const links = new Map();
   const endNodes = new Map(); // Tracks end nodes of each timeline
 
-  // Helper to get or create node
-  function getOrCreateNode(name, x, y) {
-    if (!nodes.has(name)) {
-      const node = createNode(name, x, y);
-      nodes.set(name, node);
-      return node;
-    }
-    return nodes.get(name);
-  }
-
   timelines.forEach((timeline, index) => {
     const keys = Object.keys(timeline).map(Number).sort((a, b) => a - b);
     const firstInstant = keys[0];
     const lastInstant = keys[keys.length - 1];
-
-    // Create or get the first node
-    let prevNode = getOrCreateNode(`${firstInstant}_${index}`, firstInstant, index);
+    let firstNode = null;
     
-    // If this timeline starts right after the end of any previous timelines, create links
-    if (endNodes.has(firstInstant - 1)) {
-      endNodes.get(firstInstant - 1).forEach(endNode => {
-        const newLink = createLink(endNode, prevNode);
-        links.set(newLink.id, newLink);
-      });
-    }
 
     // Create nodes and links for the rest of the timeline
-    for (let i = 1; i < keys.length; i++) {
+    for (let i = 0; i < keys.length; i++) {
+
       const instant = keys[i];
       const nodeName = `${instant}_${index}`;
-      const node = getOrCreateNode(nodeName, instant, index);
-      const newLink = createLink(prevNode, node);
-      links.set(newLink.id, newLink);
-      prevNode = node; // Update the previous node for the next iteration
-    }
+      if(instant == firstInstant){
+        if(endNodes.has(firstInstant - 1)){
+          firstNode = endNodes.get(firstInstant - 1);
+        }
+        else{
+          firstNode = createNode(nodeName, firstInstant, index);
+          nodes.set(firstNode.id, firstNode);
+        }
+      }
 
-    // Update the end node for this timeline
-    endNodes.set(lastInstant, [prevNode]);
+      if(instant == lastInstant){
+        const lastNode = createNode(nodeName, lastInstant, index);
+        endNodes.set(lastInstant, lastNode);
+        nodes.set(lastNode.id, lastNode);
+        const newLink = createLink(firstNode, lastNode);
+        links.set(newLink.id, newLink);
+      }
+    }
   });
 
   return {nodes, links};
 }
-
 
 function generateTree(){
   const nodes = new Map();
@@ -123,11 +119,35 @@ const App = () => {
   const [nodes, setNodes] = useState(INITIAL_TREE.nodes);
   const [links, setLinks] = useState(INITIAL_TREE.links);
 
-  const TRANSLATE_X = 100;
-  const TRANSLATE_Y = 100;
-  const SCALE = 40;
-
   const root = getRootNode(links, nodes);
+
+  const [stage, setStage] = useState({
+    scale: 1,
+    x: 0,
+    y: 0
+  });
+
+  const handleWheel = (e) => {
+    e.evt.preventDefault();
+
+    const scaleBy = 1.1;
+    const stage = e.target.getStage();
+    const oldScale = stage.scaleX();
+    const mousePointTo = {
+      x: stage.getPointerPosition().x / oldScale - stage.x() / oldScale,
+      y: stage.getPointerPosition().y / oldScale - stage.y() / oldScale
+    };
+
+    const newScale = e.evt.deltaY < 0 ? oldScale * scaleBy : oldScale / scaleBy;
+
+    setStage({
+      scale: newScale,
+      x: (stage.getPointerPosition().x / newScale - mousePointTo.x) * newScale,
+      y: (stage.getPointerPosition().y / newScale - mousePointTo.y) * newScale
+    });
+  };
+
+
   performPositioning(root, links, nodes);
 
   function simplifyNonBranchingNodes(links, nodes){
@@ -259,13 +279,13 @@ const App = () => {
                     onClick={() => {setClickId(link.id)}}
                     onMouseEnter={() => {setHoverId(link.id)}}
                     onMouseLeave={() => {setHoverId("none")}}
-                    points={[link.node1.x*SCALE + TRANSLATE_X, link.node1.y*SCALE + TRANSLATE_Y,      
-                             link.node2.x*SCALE + TRANSLATE_X, link.node2.y*SCALE + TRANSLATE_Y]} stroke="transparent" strokeWidth={25} />
+                    points={[link.node1.x*SCALE_X + TRANSLATE_X, link.node1.y*SCALE_Y + TRANSLATE_Y,      
+                             link.node2.x*SCALE_X + TRANSLATE_X, link.node2.y*SCALE_Y + TRANSLATE_Y]} stroke="transparent" strokeWidth={25} />
               <Line id={link.id} key={link.id}                    
                     onClick={() => {setClickId(link.id)}}
                     onMouseOver={() => {setHoverId(link.id)}}
-                    points={[link.node1.x*SCALE + TRANSLATE_X, link.node1.y*SCALE + TRANSLATE_Y,      
-                             link.node2.x*SCALE + TRANSLATE_X, link.node2.y*SCALE + TRANSLATE_Y]} stroke={hoverId == link.id ? "blue" : "black"} strokeWidth={5} />
+                    points={[link.node1.x*SCALE_X + TRANSLATE_X, link.node1.y*SCALE_Y + TRANSLATE_Y,      
+                             link.node2.x*SCALE_X + TRANSLATE_X, link.node2.y*SCALE_Y + TRANSLATE_Y]} stroke={hoverId == link.id ? "cornflowerblue" : "darkslategrey"} strokeWidth={2} />
              </>
     } else {
 
@@ -275,17 +295,17 @@ const App = () => {
                    onMouseEnter={() => {setHoverId(link.id)}}
                    onMouseLeave={() => {setHoverId("none")}}
                    bezier
-                   points={[link.node1.x*SCALE + TRANSLATE_X, link.node1.y*SCALE + TRANSLATE_Y,
-                          (link.node1.x+0.5)*SCALE + TRANSLATE_X, 0.5*(link.node2.y + link.node1.y)*SCALE + TRANSLATE_Y,
-                          (link.node1.x+1)*SCALE + TRANSLATE_X, (link.node2.y)*SCALE + TRANSLATE_Y,
-                          link.node2.x*SCALE + TRANSLATE_X, link.node2.y*SCALE + TRANSLATE_Y]} stroke="transparent" strokeWidth={25} />
+                   points={[link.node1.x*SCALE_X + TRANSLATE_X, link.node1.y*SCALE_Y + TRANSLATE_Y,
+                          (link.node1.x+0.5)*SCALE_X + TRANSLATE_X, 0.5*(link.node2.y + link.node1.y)*SCALE_Y + TRANSLATE_Y,
+                          (link.node1.x+1)*SCALE_X + TRANSLATE_X, (link.node2.y)*SCALE_Y + TRANSLATE_Y,
+                          link.node2.x*SCALE_X + TRANSLATE_X, link.node2.y*SCALE_Y + TRANSLATE_Y]} stroke="transparent" strokeWidth={25} />
               <Line id={link.id} key={link.id}
                    onClick={() => {setClickId(link.id)}}
                    bezier
-                   points={[link.node1.x*SCALE + TRANSLATE_X, link.node1.y*SCALE + TRANSLATE_Y,
-                          (link.node1.x+0.5)*SCALE + TRANSLATE_X, 0.5*(link.node2.y + link.node1.y)*SCALE + TRANSLATE_Y,
-                          (link.node1.x+1)*SCALE + TRANSLATE_X, (link.node2.y)*SCALE + TRANSLATE_Y,
-                          link.node2.x*SCALE + TRANSLATE_X, link.node2.y*SCALE + TRANSLATE_Y]} stroke={hoverId == link.id ? "blue" : "black"} strokeWidth={5} />                          
+                   points={[link.node1.x*SCALE_X + TRANSLATE_X, link.node1.y*SCALE_Y + TRANSLATE_Y,
+                          (link.node1.x+0.5)*SCALE_X + TRANSLATE_X, 0.5*(link.node2.y + link.node1.y)*SCALE_Y + TRANSLATE_Y,
+                          (link.node1.x+1)*SCALE_X + TRANSLATE_X, (link.node2.y)*SCALE_Y + TRANSLATE_Y,
+                          link.node2.x*SCALE_X + TRANSLATE_X, link.node2.y*SCALE_Y + TRANSLATE_Y]} stroke={hoverId == link.id ? "cornflowerblue" : "darkslategrey"} strokeWidth={2} />                          
               </>                           
     }
   }
@@ -295,7 +315,24 @@ const App = () => {
     <h3>{currentCommand}</h3>
     {/* <p style={{width:"50%"}}>{JSON.stringify(Array.from(nodes), null, "\t") + 'A'}</p> 
     <p style={{float:"right"}}>{JSON.stringify(Array.from(links), null, "\t") + 'B'}</p>*/}
-    <Stage width={window.innerWidth} height={window.innerHeight}>
+    <Stage
+      width={window.innerWidth}
+      height={window.innerHeight}
+      draggable
+      onWheel={handleWheel}
+      scaleX={stage.scale}
+      scaleY={stage.scale}
+      x={stage.x}
+      y={stage.y}
+      >
+
+      <Layer>
+        {[...Array(68).keys()].map((_, n) => (
+          <Line points={[n*SCALE_X + TRANSLATE_X + 2/2 + 8/2 + 4/2 + 3, 0*SCALE_Y + TRANSLATE_Y-100, n*SCALE_X + TRANSLATE_X + 2/2 + 8/2 + 4/2 +3, 500*SCALE_Y + TRANSLATE_Y]} stroke="lightgrey" strokeWidth={2}/>
+        ))}        
+        
+      </Layer>
+
       <Layer>                  
           {Array.from(links).map(([key, value]) => value).map((link) => (
             getLine(link)
@@ -305,8 +342,8 @@ const App = () => {
             <>
             
             <Circle id={node.id} key={node.id}
-                    stroke="black" radius={10} fill="red" 
-                    x={node.x*SCALE + TRANSLATE_X} y={node.y*SCALE + TRANSLATE_Y} />
+                    stroke="gray" strokeWidth={2} radius={6} fill="indianred" 
+                    x={node.x*SCALE_X + TRANSLATE_X} y={node.y*SCALE_Y + TRANSLATE_Y} />
             {/* }<Text fill="magenta" id={node.id+'text'} key={node.id+'text'} text={`${node.id}\n${node.inputLink}\n${node.outputLinks}`} x={node.x*SCALE + TRANSLATE_X + 10} y={node.y*SCALE + TRANSLATE_Y + 10} /> */}
             </>
           ))}
