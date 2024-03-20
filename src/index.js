@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Stage, Layer, Circle, Line, Text } from 'react-konva';
-import { Button } from 'semantic-ui-react'
+import { Button, Popup } from 'semantic-ui-react'
 
 const COMMANDS = {idle: "IDLE", delete: "DELETE"};
 
@@ -10,8 +10,8 @@ const TRANSLATE_Y = 100;
 const SCALE_X = 10;
 const SCALE_Y = 40;
 
-function createNode(id, x, y){
-  return {id: id.toString(), x, y, inputLink: null, outputLinks: []};
+function createNode(id, x, y, balance, instantInfo){
+  return {id: id.toString(), x, y, balance, instantInfo, inputLink: null, outputLinks: []};
 }
 
 function createLink(node1, node2){  
@@ -33,26 +33,46 @@ function generateTreeFromFile(jsonData) {
     const keys = Object.keys(timeline).map(Number).sort((a, b) => a - b);
     const firstInstant = keys[0];
     const lastInstant = keys[keys.length - 1];
-    let firstNode = null;
+    let firstNode = null;    
     
 
     // Create nodes and links for the rest of the timeline
     for (let i = 0; i < keys.length; i++) {
 
       const instant = keys[i];
+
+      let totalBalance = 0
+      let modelData = {};
+      let instantInfo = simulation_data.timelines[index][instant]      
+      for(let modelId in instantInfo){
+        let model = instantInfo[modelId];
+        for(let property in model){            
+          modelData = model[property];
+          for(let property in modelData){
+            if(property === "balance"){            
+              totalBalance = totalBalance +  modelData.balance;
+            }
+          }
+          
+        }                
+      }
+
+      
       const nodeName = `${instant}_${index}`;
       if(instant == firstInstant){
         if(endNodes.has(firstInstant - 1)){
           firstNode = endNodes.get(firstInstant - 1);
         }
         else{
-          firstNode = createNode(nodeName, firstInstant, index);
-          nodes.set(firstNode.id, firstNode);
+          firstNode = createNode(nodeName, firstInstant, index, totalBalance, instantInfo);
+          nodes.set(firstNode.id, firstNode);          
         }
       }
 
       if(instant == lastInstant){
-        const lastNode = createNode(nodeName, lastInstant, index);
+        const lastNode = createNode(nodeName, lastInstant, index, totalBalance, instantInfo);      
+                
+        
         endNodes.set(lastInstant, lastNode);
         nodes.set(lastNode.id, lastNode);
         const newLink = createLink(firstNode, lastNode);
@@ -313,6 +333,7 @@ const App = () => {
     <>
     <Button onClick={() => {currentCommand == COMMANDS.delete ? setCurrentCommand(COMMANDS.idle) : setCurrentCommand(COMMANDS.delete)}} >Delete</Button>
     <h3>{currentCommand}</h3>
+           
     {/* <p style={{width:"50%"}}>{JSON.stringify(Array.from(nodes), null, "\t") + 'A'}</p> 
     <p style={{float:"right"}}>{JSON.stringify(Array.from(links), null, "\t") + 'B'}</p>*/}
     <Stage
@@ -340,11 +361,13 @@ const App = () => {
 
           {Array.from(nodes).map(([key, value]) => value).map((node) => (
             <>
-            
-            <Circle id={node.id} key={node.id}
-                    stroke="gray" strokeWidth={2} radius={6} fill="indianred" 
-                    x={node.x*SCALE_X + TRANSLATE_X} y={node.y*SCALE_Y + TRANSLATE_Y} />
-            {/* }<Text fill="magenta" id={node.id+'text'} key={node.id+'text'} text={`${node.id}\n${node.inputLink}\n${node.outputLinks}`} x={node.x*SCALE + TRANSLATE_X + 10} y={node.y*SCALE + TRANSLATE_Y + 10} /> */}
+              
+              <Text text={node.id} x={node.x*SCALE_X + 10 + TRANSLATE_X} y={node.y*SCALE_Y + TRANSLATE_Y} />
+              <Text text={node.balance.toFixed(2)} x={node.x*SCALE_X + 10 + TRANSLATE_X} y={node.y*SCALE_Y + TRANSLATE_Y + 20} />
+              <Text text={JSON.stringify(node.instantInfo, null, "  ")} x={node.x*SCALE_X + 40 + TRANSLATE_X} y={node.y*SCALE_Y + TRANSLATE_Y + 50} />
+              <Circle id={node.id} key={node.id}
+                      stroke="gray" strokeWidth={2} radius={6} fill="indianred" 
+                      x={node.x*SCALE_X + TRANSLATE_X} y={node.y*SCALE_Y + TRANSLATE_Y} />
             </>
           ))}
 
